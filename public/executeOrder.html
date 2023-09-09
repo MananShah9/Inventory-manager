@@ -1,0 +1,295 @@
+<!--
+    Author: Manan Kalpesh Shah
+    Copyright (c) Manan Kalpesh Shah. All rights reserved.
+    Contact: contact@mananshah.in
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Management</title>
+    <script src="/__/firebase/9.22.1/firebase-app-compat.js"></script>
+    <script src="/__/firebase/9.22.1/firebase-auth-compat.js"></script>
+    <script src="/__/firebase/9.22.1/firebase-firestore-compat.js"></script>
+
+    <script src="/__/firebase/init.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-sm navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="javascript:void(0)">Shakti Traders</a>
+            <form class="d-flex">
+                <p id="quickstart-account-details" class="d-none d-lg-block"></p>
+                <button disabled type="button" id="quickstart-sign-in" class="btn btn-warning">Sign in</button>
+            </form>
+        </div>
+    </nav>
+    <select id="order-select">
+        <option></option>
+    </select>
+    <form id="execute-order-form">
+
+        <!-- Div to show products with quantity not 0 -->
+        <br><br>
+        <!-- show purcahser name -->
+        <label id="purchaser-name"></label><br>
+
+        Products in order:
+        <div id="final-products-of-order"></div>
+
+
+
+        <br><br><br><br>Modify order:
+        <br><br><input type="text" id="product-search" placeholder="Filter Products">
+        <!-- Form to update order products and quantity -->
+        <br>
+        <div id="product-list"></div>
+
+        <button type="submit" class="btn btn-primary">Execute Order</button>
+
+    </form>
+    <script>
+
+        const productList = document.getElementById('product-list');
+        // populate product list
+        const finalProductsOfOrder = document.getElementById('final-products-of-order');
+        firebase.firestore().collection('products').get().then((querySnapshot) => {
+            querySnapshot.forEach((doc) => {
+                const div = document.createElement('div');
+                div.innerHTML = `
+                    <label>${doc.data().name}</label>
+                    <img src="${doc.data().photoUrl}" alt="" width="100">
+                    <input type="number" data-id="${doc.id}" placeholder="Quantity">
+                `;
+                productList.appendChild(div);
+            });
+        });
+        //    filter product-list by label from input in product-search
+
+        const productSearch = document.getElementById('product-search');
+        productSearch.addEventListener('keyup', (e) => {
+            const searchValue = e.target.value.toLowerCase();
+            const products = Array.from(productList.getElementsByTagName('div'));
+            products.forEach((product) => {
+                const label = product.getElementsByTagName('label')[0];
+                if (label.textContent.toLowerCase().indexOf(searchValue) !== -1) {
+                    product.style.display = 'block';
+                } else {
+                    product.style.display = 'none';
+                }
+            });
+        });
+
+        const executeOrderForm = document.getElementById('execute-order-form');
+        const orderSelect = document.getElementById('order-select');
+
+
+        // Only load orders in pending status
+        firebase.firestore().collection('orders').where('status', '==', 'pending').get().then((querySnapshot) => {
+            querySnapshot.forEach((doc) => {
+                const option = document.createElement('option');
+                option.value = doc.id;
+                option.text = `Order #${doc.id}`;
+                orderSelect.appendChild(option);
+            });
+            if (querySnapshot.size === 0) {
+                window.alert('No pending orders');
+            }
+        });
+
+        // load products quanity for selected order
+        orderSelect.addEventListener('change', (e) => {
+            const orderId = e.target.value;
+            if (e.target.value === '') return;
+            document.getElementById('execute-order-form').reset();
+
+            firebase.firestore().collection('orders').doc(orderId).get().then((doc) => {
+                document.getElementById('purchaser-name').innerHTML = ""
+                const purchaserName = doc.data().purchaserName;
+                document.getElementById('purchaser-name').innerHTML = "Purchaser Name: " + purchaserName;
+
+                const products = doc.data().products;
+                products.forEach((product) => {
+                    const input = document.querySelector(`input[data-id="${product.id}"]`);
+                    input.value = product.quantity;
+                });
+                populateProductsOfCurrentOrder();
+
+            });
+
+        });
+
+        // update finalProductsOfOrder when product quantity is changed
+        let populateProductsOfCurrentOrder = () => {
+            finalProductsOfOrder.innerHTML = '';
+            tempProductList = document.getElementById('product-list');
+            // get array of divs in product-list
+            const products = Array.from(tempProductList.getElementsByTagName('div'));
+            // for each div in product-list check if quantity is not 0
+            products.forEach((product) => {
+                const input = product.getElementsByTagName('input')[0];
+                if (Number(input.value) != 0 && input.value != '') {
+                    const div = document.createElement('div');
+                    div.innerHTML = `
+                        <label>${product.getElementsByTagName('label')[0].textContent}</label>
+                        <img src="${product.getElementsByTagName('img')[0].src}" alt="" width="100">
+                        <label>${input.value}</label>
+                    `;
+                    finalProductsOfOrder.appendChild(div);
+                }
+            });
+        }
+        productList.addEventListener('change', (e) => {
+
+            populateProductsOfCurrentOrder();
+        });
+
+
+
+
+
+        executeOrderForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const orderId = orderSelect.value;
+            if (orderId === '') return;
+
+
+            // update order products and quantity in Firestore
+            const products = Array.from(productList.getElementsByTagName('input')).map((input) => {
+                if (input.value !== '' && Number(input.value) != 0)
+                    return {
+                        id: input.dataset.id,
+                        quantity: Number(input.value)
+                    };
+            }).filter((product) => product !== undefined);
+
+            orderRef = firebase.firestore().collection('orders').doc(orderId);
+            orderRef.update({
+                products,
+                status: 'executed'
+            });
+            // reduce product quantity in Firestore
+            orderRef.get().then((doc) => {
+                const products = doc.data().products;
+                products.forEach((product) => {
+                    const productRef = firebase.firestore().collection('products').doc(product.id);
+                    productRef.get().then((doc) => {
+                        const quantity = Number(doc.data().quantity);
+                        productRef.update({
+                            quantity: quantity - Number(product.quantity)
+                        });
+                    });
+                });
+            });
+            window.alert('Order executed successfully');
+            // reload page
+            window.location.reload();
+
+        });
+    </script>
+    <script>
+
+        const user = firebase.auth().currentUser;
+        function initApp() {
+            // Listening for auth state changes.
+            firebase.auth().onAuthStateChanged(function (user) {
+                refreshPage();
+            });
+            // refreshPage();
+
+            document.getElementById('quickstart-sign-in').addEventListener('click', toggleSignIn, false);
+        }
+
+        window.onload = function () {
+            initApp();
+
+        };
+        function toggleSignIn() {
+            if (!firebase.auth().currentUser) {
+                var provider = new firebase.auth.GoogleAuthProvider();
+                // provider.addScope('https://www.googleapis.com/auth/contacts.readonly');
+                firebase.auth().signInWithPopup(provider).then(function (result) {
+                    // This gives you a Google Access Token. You can use it to access the Google API.
+                    var token = result.credential.accessToken;
+                    // The signed-in user info.
+                    var user = result.user;
+                    // document.getElementById('quickstart-oauthtoken').textContent = token;
+                }).catch(function (error) {
+                    // Handle Errors here.
+                    var errorCode = error.code;
+                    var errorMessage = error.message;
+                    // The email of the user's account used.
+                    var email = error.email;
+                    // The firebase.auth.AuthCredential type that was used.
+                    var credential = error.credential;
+                    if (errorCode === 'auth/account-exists-with-different-credential') {
+                        alert('You have already signed up with a different auth provider for that email.');
+                        // If you are using multiple auth providers on your app you should handle linking
+                        // the user's accounts here.
+                    } else {
+                        console.error(error);
+                    }
+                });
+            } else {
+                console.log("Signing out!");
+                firebase.auth().signOut();
+            }
+            document.getElementById('quickstart-sign-in').disabled = true;
+        }
+
+        /**
+         * initApp handles setting up UI event listeners and registering Firebase auth listeners:
+         *  - firebase.auth().onAuthStateChanged: This listener is called when the user is signed in or
+         *    out, and that is where we update the UI.
+         */
+        let refreshPage = function () {
+            const user = firebase.auth().currentUser;
+
+            if (user) {
+                // User is signed in.
+                // var displayName = user.displayName;
+                // var email = user.email;
+                // var emailVerified = user.emailVerified;
+                // var photoURL = user.photoURL;
+                // var isAnonymous = user.isAnonymous;
+                // var uid = user.uid;
+                // var providerData = user.providerData;
+                // document.getElementById('quickstart-sign-in-status').textContent = 'Signed in';
+                document.getElementById('quickstart-sign-in').textContent = 'Sign out';
+                document.getElementById('quickstart-account-details').textContent = "Welcome " + user.displayName + "! &nbsp;&nbsp;&nbsp;";
+
+
+                user.getIdTokenResult(true).then((idTokenResult) => {
+                    // console.log(idTokenResult.claims);
+                    // if (idTokenResult.claims.caller == true) {
+                    //     document.getElementById('createCaseDiv').style.display = 'block';
+                    // } else {
+                    //     firebase.auth().signOut();
+                    //     window.alert("You do not have permission to add cases and have been logged out!");
+                    //     window.close();
+
+                    // }
+                })
+            } else {
+                // User is signed out.
+                // document.getElementById('quickstart-sign-in-status').textContent = 'Signed out';
+                document.getElementById('quickstart-sign-in').textContent = 'Sign in with Google';
+                document.getElementById('quickstart-account-details').textContent = '';
+                // document.getElementById('quickstart-oauthtoken').textContent = 'null';
+                // document.getElementById('createCaseDiv').style.display = 'none';
+            }
+            document.getElementById('quickstart-sign-in').disabled = false;
+        }
+    </script>
+
+</body>
+
+</html>
